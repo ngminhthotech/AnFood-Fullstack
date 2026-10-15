@@ -1,0 +1,100 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor "Khách hàng" as Customer
+actor "Quản trị viên" as Admin
+actor "Cổng VNPAY" as VNPAY
+actor "AI Gemini Chatbot" as Gemini
+
+rectangle "Hệ thống Website FastBite" {
+  package "Nhóm dùng chung" {
+    usecase "Đăng nhập / Đăng ký" as UC_Auth
+    usecase "Quên mật khẩu qua OTP" as UC_ForgotPassword
+  }
+
+  package "Khách hàng" {
+    usecase "Quản lý hồ sơ cá nhân" as UC_Profile
+    usecase "Quản lý địa chỉ giao hàng" as UC_Address
+    usecase "Khám phá thực đơn\n& lọc theo danh mục" as UC_BrowseMenu
+    usecase "Xem chi tiết món ăn" as UC_ViewFood
+    usecase "Quản lý giỏ hàng" as UC_Cart
+    usecase "Đặt món" as UC_Order
+    usecase "Theo dõi lịch sử đơn hàng" as UC_OrderHistory
+    usecase "Thanh toán" as UC_Payment
+    usecase "Đánh giá món ăn" as UC_Review
+    usecase "Gửi liên hệ / hỗ trợ" as UC_Contact
+    usecase "Xem khuyến mãi / quảng cáo" as UC_Ads
+    usecase "Nhận gợi ý món ăn\ncá nhân hóa" as UC_Recommendation
+    usecase "Chatbot tư vấn món ăn" as UC_Chatbot
+  }
+
+  package "Quản trị viên" {
+    usecase "Quản lý người dùng" as UC_ManageUsers
+    usecase "Quản lý danh mục\n& món ăn" as UC_ManageMenu
+    usecase "Quản lý đơn hàng" as UC_ManageOrders
+    usecase "Quản lý kho (ERP)" as UC_Inventory
+    usecase "Xem thống kê / báo cáo" as UC_Report
+    usecase "Quản lý quảng cáo" as UC_ManageAds
+    usecase "Quản lý liên hệ" as UC_ManageContacts
+  }
+
+  package "Mở rộng" {
+    usecase "Thanh toán VNPAY" as UC_VNPAY
+    usecase "Thanh toán COD" as UC_COD
+    usecase "Lập phiếu Nhập/Xuất kho" as UC_StockVoucher
+  }
+}
+
+Customer -- UC_Auth
+Customer -- UC_ForgotPassword
+Customer -- UC_Profile
+Customer -- UC_Address
+Customer -- UC_BrowseMenu
+Customer -- UC_ViewFood
+Customer -- UC_Cart
+Customer -- UC_Order
+Customer -- UC_OrderHistory
+Customer -- UC_Payment
+Customer -- UC_Review
+Customer -- UC_Contact
+Customer -- UC_Ads
+Customer -- UC_Recommendation
+Customer -- UC_Chatbot
+
+Admin -- UC_Auth
+Admin -- UC_ManageUsers
+Admin -- UC_ManageMenu
+Admin -- UC_ManageOrders
+Admin -- UC_Inventory
+Admin -- UC_Report
+Admin -- UC_ManageAds
+Admin -- UC_ManageContacts
+
+VNPAY -- UC_VNPAY
+Gemini -- UC_Chatbot
+
+UC_ForgotPassword ..> UC_Auth : <<extend>>
+
+UC_Profile ..> UC_Auth : <<include>>
+UC_Address ..> UC_Auth : <<include>>
+UC_Cart ..> UC_Auth : <<include>>
+UC_Order ..> UC_Auth : <<include>>
+UC_OrderHistory ..> UC_Auth : <<include>>
+UC_Payment ..> UC_Auth : <<include>>
+UC_Review ..> UC_Auth : <<include>>
+UC_Recommendation ..> UC_Auth : <<include>>
+UC_ManageUsers ..> UC_Auth : <<include>>
+UC_ManageMenu ..> UC_Auth : <<include>>
+UC_ManageOrders ..> UC_Auth : <<include>>
+UC_Inventory ..> UC_Auth : <<include>>
+UC_Report ..> UC_Auth : <<include>>
+UC_ManageAds ..> UC_Auth : <<include>>
+UC_ManageContacts ..> UC_Auth : <<include>>
+
+UC_VNPAY ..> UC_Payment : <<extend>>
+UC_COD ..> UC_Payment : <<extend>>
+UC_StockVoucher ..> UC_Inventory : <<extend>>
+
+@enduml

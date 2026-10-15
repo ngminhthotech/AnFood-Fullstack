@@ -1,0 +1,60 @@
+
+# =====================================
+# ANFOOD - GITIGNORE
+# ASP.NET Core Backend + React Frontend
+# =====================================
+
+# --- ENVIRONMENT VARIABLES ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# --- BACKEND (AnFoodAPI) ---
+[Bb]in/
+[Oo]bj/
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Sensitive backend configuration
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.example.json
+
+# --- FRONTEND (AnFoodWeb) ---
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# --- LOGS ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- IDE ---
+.idea/
+
+# --- OPERATING SYSTEM ---
+.DS_Store
+Thumbs.db
+
+# --- TEMPORARY FILES ---
+*.tmp
+*.bak
+# --- POSTMAN CONFIGURATION ---
+.postman/
+postman/
+
+# --- LOCAL BACKUPS ---
+*.zip
+
+# --- SENSITIVE FILES ---
+*.pfx
+*.p12
+*.pem
+*.key

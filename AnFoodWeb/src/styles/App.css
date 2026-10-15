@@ -1,0 +1,92 @@
+/* App.css - PHIÊN BẢN ĐÃ SỬA LỖI HẸP MÀN HÌNH */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@400;500;600&display=swap');
+
+/* 1. Reset mặc định để web không bị hở viền trắng */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  overflow-x: hidden; /* Chặn thanh cuộn ngang thừa */
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background-color: #fff;
+  color: #333;
+}
+
+/* 2. QUAN TRỌNG: Phá bỏ giới hạn chiều rộng của #root */
+#root {
+  width: 100%;
+  max-width: 100%; /* Cho phép tràn viền 100% */
+  margin: 0;
+  padding: 0;
+  text-align: left; /* Trả về căn trái chuẩn */
+}
+
+/* 3. Class Container: Chỉ dùng để giới hạn nội dung bên trong, không giới hạn màu nền */
+.container {
+  width: 100%;
+  max-width: 1200px; /* Nội dung (chữ, ảnh) chỉ rộng tối đa 1200px cho đẹp */
+  margin: 0 auto;    /* Căn giữa nội dung */
+  padding: 0 20px;   /* Khoảng cách an toàn trên điện thoại */
+}
+
+/* --- ANIMATION VÒNG TRÒN (Giữ nguyên) --- */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spin-reverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.orbit-container {
+  position: relative;
+  width: 450px;
+  height: 450px;
+  border-radius: 50%;
+  border: 1px dashed rgba(230, 74, 25, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: spin-slow 50s linear infinite;
+}
+
+.floating-item {
+  position: absolute;
+  width: 55px;
+  height: 55px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  animation: spin-reverse 50s linear infinite; /* Giữ icon luôn đứng thẳng */
+}
+
+/* Vị trí vệ tinh */
+.pos-1 { top: 0; left: 50%; transform: translate(-50%, -50%); }
+.pos-2 { top: 50%; right: 0; transform: translate(50%, -50%); }
+.pos-3 { bottom: 0; left: 50%; transform: translate(-50%, 50%); }
+.pos-4 { top: 50%; left: 0; transform: translate(-50%, -50%); }
+
+/* Responsive mobile */
+@media (max-width: 768px) {
+  .hero-section {
+    flex-direction: column-reverse; /* Đảo ngược trên mobile: Ảnh lên trên, chữ xuống dưới */
+    text-align: center;
+    padding-top: 20px;
+  }
+  .orbit-container { width: 300px; height: 300px; margin-bottom: 40px; }
+  .floating-item { width: 40px; height: 40px; font-size: 18px; }
+  .hero-text-content { padding-right: 0 !important; }
+}

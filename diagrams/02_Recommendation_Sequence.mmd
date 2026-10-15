@@ -1,0 +1,124 @@
+sequenceDiagram
+    actor U as Người dùng
+    participant FE as Frontend<br/>(Vue/React)
+    participant RC as RecommendationController
+    participant DB as AnshopDbContext
+    participant WS as WeatherService
+    participant RS as RecommendationService<br/>(ML.NET)
+    participant WEATHER as Weather API
+    participant CACHE as Cache<br/>(GoiYAi Table)
+
+    rect rgb(200, 220, 240)
+        Note over U,CACHE: GIAI ĐOẠN 1: KHÁCH HÀNG YÊU CẦU GỢI Ý
+        U->>FE: Mở trang chủ/danh mục
+        FE->>RC: GET /api/recommendation/ForUser/{userId}?lat=10.0452&lon=105.7469
+        
+        RC->>WS: GetCurrentWeatherAsync(lat, lon)
+        WS->>WEATHER: Call Weather API
+        WEATHER-->>WS: Thời tiết hiện tại<br/>(Rain, Clear, Hot, ...)
+        WS-->>RC: currentWeather = "Rain"
+        
+        RC->>RC: currentHour = 14 (2 chiều)<br/>Giờ VN chuẩn
+    end
+
+    rect rgb(240, 220, 200)
+        Note over U,CACHE: GIAI ĐOẠN 2: KIỂM TRA CACHE
+        RC->>CACHE: Query GoiYAi<br/>WHERE MaNguoiDung = {userId}<br/>ORDER BY Diem DESC
+        
+        alt Cache hợp lệ (< 15 phút)
+            CACHE-->>RC: Danh sách gợi ý<br/>đã sắp xếp
+            
+            RC->>DB: Query MonAn<br/>WHERE MaMon IN (cache)<br/>AND TrangThai='con_ban'
+            DB-->>RC: Chi tiết các món
+            
+            RC->>DB: Query DiemDanhGia<br/>Tính điểm TB
+            DB-->>RC: Điểm đánh giá
+            
+            RC-->>FE: 200 OK<br/>{success: true,<br/>type: "ai-personalized-cached",<br/>context: {weather: "Rain", hour: 14},<br/>data: [{MonAnDTO...}]}
+            
+            Note over RC,FE: ✅ Cache HIT<br/>Trả kết quả ngay
+            FE-->>U: Hiển thị danh sách gợi ý
+        else Cache hết hạn hoặc không có
+            Note over RC,CACHE: 🔄 Cache MISS<br/>Cần tính toán lại
+        end
+    end
+
+    rect rgb(220, 240, 200)
+        Note over U,CACHE: GIAI ĐOẠN 3: KÍCH HOẠT LÕI ML.NET (COLLABORATIVE FILTERING)
+        RC->>DB: Query MonAn<br/>WHERE TrangThai='con_ban'
+        DB-->>RC: allActiveFoods
+        
+        loop Cho mỗi MonAn
+            RC->>RS: PredictScore(userId, monAn.MaMon)
+            
+            RS->>RS: Dùng ML.NET Matrix Factorization<br/>trên AiLichSuHanhVi
+            RS->>RS: Tính điểm dựa trên:<br/>- User-Product history<br/>- User tương tự<br/>- Sản phẩm tương tự
+            
+            RS-->>RC: float aiScore (ví dụ: 8.5)
+            
+            rect rgb(200, 240, 240)
+                Note over RC,RS: GIAI ĐOẠN 4: ÁP DỤNG NGỮ CẢNH (CONTEXT-AWARE)
+                RC->>RC: contextMultiplier = 1.0f
+                
+                alt Khung giờ sáng (6-9)<br/>& Danh mục = Đồ uống
+                    RC->>RC: contextMultiplier += 0.5f<br/>🌅 Sáng -> Đồ uống
+                end
+                
+                alt Khung giờ khuya (21-23)<br/>& Danh mục = Ăn vặt/Gà rán
+                    RC->>RC: contextMultiplier += 0.5f<br/>🌙 Khuya -> Ăn vặt
+                end
+                
+                alt Thời tiết = Mưa<br/>& Danh mục = Lẩu/Pizza/Gà rán
+                    RC->>RC: contextMultiplier += 0.8f<br/>🌧️ Mưa -> Món ấm
+                end
+                
+                alt Thời tiết = Nóng<br/>& Danh mục = Đồ uống
+                    RC->>RC: contextMultiplier += 0.6f<br/>☀️ Nóng -> Đồ uống lạnh
+                end
+            end
+            
+            RC->>RC: finalScore = aiScore × contextMultiplier<br/>Ví dụ: 8.5 × 1.3 = 11.05
+        end
+    end
+
+    rect rgb(200, 240, 240)
+        Note over U,CACHE: GIAI ĐOẠN 5: FALLBACK VÀ TOP 30 GỢI Ý
+        RC->>RC: Sắp xếp theo finalScore<br/>Giảm dần
+        
+        alt Danh sách rỗng (Cold-Start Problem)
+            Note over RC: ⚠️ Người dùng mới<br/>-> Fallback: Top bán chạy
+            RC->>DB: Query MonAn<br/>ORDER BY BanChay DESC<br/>LIMIT 30
+            DB-->>RC: 30 món bán chạy nhất
+        else Có dữ liệu ML.NET
+            RC->>RC: Lấy Top 30 món<br/>óc điểm cao nhất
+        end
+        
+        RC->>DB: Query DiemDanhGia<br/>cho 30 món này
+        DB-->>RC: DiemDanhGia
+    end
+
+    rect rgb(240, 240, 200)
+        Note over U,CACHE: GIAI ĐOẠN 6: LƯU CACHE & TRẢ KẾT QUẢ
+        RC->>CACHE: DELETE GoiYAi<br/>WHERE MaNguoiDung = userId
+        
+        loop Cho mỗi Top 30 món
+            RC->>CACHE: INSERT GoiYAi<br/>(MaNguoiDung, MaMon,<br/>Diem, ThoiGian)
+        end
+        
+        CACHE-->>RC: Cache lưu thành công
+        
+        RC->>RC: Tạo MonAnDTO list
+        RC-->>FE: 200 OK<br/>{success: true,<br/>type: "ai-personalized",<br/>context: {weather, hour},<br/>data: [{MonAnDTO...}]}
+        
+        FE-->>U: Hiển thị 30 món gợi ý<br/>✅ Sở thích cá nhân (ML.NET)<br/>✅ Thời tiết hiện tại<br/>✅ Giờ trong ngày
+    end
+
+    rect rgb(220, 200, 220)
+        Note over U,CACHE: GHI CHÚ: CHỈNH SỬA GỢI Ý
+        U->>FE: (Tùy chọn) Thay đổi vị trí<br/>hoặc chọn bộ lọc khác
+        
+        alt Có thay đổi
+            RC->>CACHE: Xóa cache cũ
+            Note over RC,CACHE: LẶP LẠI GIAI ĐOẠN 2-6
+        end
+    end

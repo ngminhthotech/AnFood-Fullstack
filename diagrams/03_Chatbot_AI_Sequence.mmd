@@ -1,0 +1,120 @@
+sequenceDiagram
+    actor U as Người dùng
+    participant FE as Frontend<br/>(Vue/React)
+    participant CBC as ChatbotController
+    participant CBS as ChatbotService
+    participant DB as AnshopDbContext
+    participant RS as RecommendationService<br/>(ML.NET)
+    participant GEMINI as Gemini API<br/>(Google)
+
+    rect rgb(200, 220, 240)
+        Note over U,GEMINI: GIAI ĐOẠN 1: KHÁCH HÀNG GỬI TIN NHẮN
+        U->>FE: Nhập tin nhắn vào chatbot<br/>"Em muốn ăn gì buổi chiều?"
+        FE->>CBC: POST /api/chatbot/SendMessage<br/>{MaNguoiDung: 123,<br/>NoiDung: "..."}
+    end
+
+    rect rgb(240, 220, 200)
+        Note over U,GEMINI: GIAI ĐOẠN 2: LƯU TIN NHẮN NGƯỜI DÙNG
+        CBC->>DB: INSERT LichSuChat<br/>(MaNguoiDung, NoiDung,<br/>NguoiGui="User", ThoiGian)
+        DB-->>CBC: Lưu thành công
+        
+        CBC->>CBS: LayPhanHoiTuAiAsync(123, "...")
+    end
+
+    rect rgb(220, 240, 200)
+        Note over U,GEMINI: GIAI ĐOẠN 3: KÍCH HOẠT ML.NET<br/>LỌC RA TOP 5 MÓN
+        CBS->>DB: Query MonAn<br/>WHERE TrangThai='con_ban'
+        DB-->>CBS: allActiveFoods
+        
+        alt Khách đã đăng nhập (userId > 0)
+            Note over CBS,RS: 🧠 ML.NET Collaborative Filtering
+            
+            loop Cho mỗi MonAn
+                CBS->>RS: PredictScore(userId=123, monAn.MaMon)
+                RS->>RS: Matrix Factorization<br/>từ AiLichSuHanhVi
+                RS-->>CBS: float score (ví dụ: 8.7)
+            end
+            
+            CBS->>CBS: Sắp xếp theo score<br/>Lấy Top 5 món
+        else Khách vãng lai (userId = null)
+            Note over CBS,RS: ❄️ Cold-Start Problem<br/>-> Top bán chạy
+            CBS->>DB: Query MonAn<br/>ORDER BY BanChay DESC<br/>LIMIT 5
+            DB-->>CBS: Top 5 bán chạy nhất
+        end
+        
+        CBS->>CBS: Tạo top5Foods array<br/>[{id, name, price,<br/>tag: "Cá nhân hóa"}, ...]
+    end
+
+    rect rgb(200, 240, 240)
+        Note over U,GEMINI: GIAI ĐOẠN 4: LẤY LỊCH SỬ CHAT<br/>ĐỂ AI NHỚ NGỮ CẢNH
+        CBS->>DB: Query LichSuChat<br/>WHERE MaNguoiDung = 123<br/>ORDER BY ThoiGian DESC<br/>LIMIT 5
+        DB-->>CBS: 5 tin nhắn gần nhất
+        
+        CBS->>CBS: Đảo ngược thứ tự (Cũ -> Mới)<br/>lichSuChat = "User: ...<br/>Bot: ...<br/>User: Em muốn ăn gì?"
+    end
+
+    rect rgb(240, 240, 200)
+        Note over U,GEMINI: GIAI ĐOẠN 5: TẠO PROMPT & GỬI GEMINI
+        CBS->>CBS: Tạo promptSystem:<br/>"Bạn là trợ lý AI FastBite<br/>Top 5 món: [{...}]<br/><br/>🚨 YÊU CẦU JSON:<br/>{<br/>'message': 'Câu tư vấn',<br/>'suggestedProductIds': [...]<br/>}"
+        
+        CBS->>CBS: Tạo fullPrompt:<br/>promptSystem + LỊCH SỬ<br/>+ "Khách hỏi: ..."
+        
+        Note over CBS: ⚡ Ép Gemini trả JSON<br/>Chỉ gửi Top 5<br/>-> Token tiết kiệm
+        
+        CBS->>CBS: Tạo request body:<br/>{contents, responseMimeType}
+        CBS->>GEMINI: POST /v1beta/models/gemini-2.5-flash
+        Note over CBS,GEMINI: ?key=
+        
+        Note over GEMINI: 🤖 Gemini xử lý:<br/>1. Đọc prompt + lịch sử<br/>2. Hiểu ý khách<br/>3. Tư vấn Top 5 món<br/>4. Trả JSON định dạng
+        
+        GEMINI-->>CBS: 200 OK<br/>{"candidates": [{<br/>"content": {<br/>"parts": [{<br/>"text": "{<br/>'message': 'Buổi chiều nóng...',<br/>'suggestedProductIds': [1, 5]<br/>}"<br/>}]}}]}
+        
+        CBS->>CBS: Parse JSON response<br/>Deserialize -> AiResponseDto
+    end
+
+    rect rgb(220, 200, 220)
+        Note over U,GEMINI: GIAI ĐOẠN 6: LƯU TIN NHẮN BOT<br/>VÀ TRẢ PHẢN HỒI
+        CBS->>DB: INSERT LichSuChat<br/>(MaNguoiDung, NoiDung=message,<br/>NguoiGui="Bot", ThoiGian)
+        DB-->>CBS: Lưu thành công
+        
+        Note over CBS,DB: ✅ Lưu lịch sử để:<br/>- Tracking hành vi<br/>- Huấn luyện ML<br/>- Hiểu user tốt hơn
+        
+        CBS-->>CBC: AiResponseDto<br/>{message: "...",<br/>suggestedProductIds: [1, 5]}
+    end
+
+    rect rgb(200, 220, 220)
+        Note over U,GEMINI: GIAI ĐOẠN 7: HIỂN THỊ PHẢN HỒI<br/>TRÊN FRONTEND
+        CBC-->>FE: 200 OK<br/>AiResponseDto JSON
+        
+        FE->>FE: Hiển thị tin nhắn Bot
+        FE->>FE: Lấy suggestedProductIds = [1, 5]<br/>Query thông tin:<br/>- Tên, Giá, Hình, Đánh giá
+        
+        FE-->>U: Hiển thị:<br/>1️⃣ Tin nhắn bot<br/>2️⃣ Thẻ sản phẩm<br/>[Cơm tấm - 45K]<br/>[Cơm gà - 50K]<br/>Nút: Thêm giỏ, Chi tiết
+    end
+
+    rect rgb(240, 200, 220)
+        Note over U,GEMINI: GIAI ĐOẠN 8: NGƯỜI DÙNG TƯƠNG TÁC & LẶP LẠI
+        
+        alt Người dùng tiếp tục chat
+            U->>FE: Gửi tin nhắn tiếp:<br/>"Em muốn gà rán + Coca"
+            Note over FE: 🔄 LẶP LẠI GIAI ĐOẠN 1<br/>Lịch sử sẽ được<br/>Gemini nhớ
+        else Người dùng thêm vào giỏ
+            U->>FE: Bấm "Thêm vào giỏ"
+            FE->>FE: Tăng số lượng GioHang
+            Note over FE: ➕ Hành động được ghi<br/>vào AiLichSuHanhVi<br/>cho lần gợi ý tiếp
+        else Người dùng kết thúc chat
+            U->>FE: Đóng chatbot
+            FE-->>U: Lưu lịch sử<br/>(Mở lại sau)
+        end
+    end
+
+    rect rgb(255, 240, 240)
+        Note over U,GEMINI: ⚠️ EXCEPTION HANDLING
+        
+        alt API Gemini timeout
+            CBS->>CBS: Bắt exception
+            CBS-->>CBC: AiResponseDto<br/>{message: "Dạ máy chủ đang quá tải...",<br/>suggestedProductIds: []}
+            CBC-->>FE: 500 Error
+            FE-->>U: Hiển thị lỗi nhân ái
+        end
+    end

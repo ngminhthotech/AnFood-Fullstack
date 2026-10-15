@@ -1,0 +1,168 @@
+@startuml Checkout_Payment_Process
+!theme plain
+title Sơ đồ xử lý Đặt hàng và Thanh toán (Checkout & Payment)\nAnFood System
+
+actor User as U
+participant "Frontend\n(Vue/React)" as FE
+participant "GioHangController" as GHC
+participant "DonHangController" as DHC
+participant "OrderService" as OS
+participant "AnshopDbContext\n(Database)" as DB
+participant "PaymentController" as PC
+participant "VnPayService" as VPS
+participant "VNPay\nGateway" as VNPAY
+participant "ThanhToanService" as TS
+
+rect rgb(200, 220, 240)
+note over U, TS
+    GIAI ĐOẠN 1: HIỂN THỊ GIỎ HÀNG
+end note
+
+U -> FE: Mở giỏ hàng
+FE -> GHC: GET /api/giohang/{userId}
+GHC -> DB: Query ChiTietGioHang\n+ MonAn details
+DB --> GHC: Trả về danh sách
+GHC --> FE: JSON danh sách sản phẩm
+FE -> U: Hiển thị giỏ hàng\nVới tổng giá và phí
+
+end
+
+rect rgb(220, 240, 200)
+note over U, TS
+    GIAI ĐOẠN 2: NHẬP THÔNG TIN GIAO HÀNG & ÁP DỤNG VOUCHER
+end note
+
+U -> FE: Nhập thông tin giao hàng\n(Tên, SĐT, Địa chỉ, Ghi chú)
+U -> FE: Chọn voucher (nếu có)
+FE -> FE: Tính toán lại tổng tiền\n(Trừ discount)
+
+end
+
+rect rgb(240, 220, 200)
+note over U, TS
+    GIAI ĐOẠN 3: TẠNG ĐƠN HÀNG & KIỂM TRA KHO
+end note
+
+U -> FE: Chọn phương thức thanh toán\n(VNPay hoặc COD)
+FE -> DHC: POST /api/donhang/TaoDon\n{\n  MaNguoiDung,\n  NguoiNhan,\n  SoDienThoai,\n  DiaChiGiaoHang,\n  GhiChu,\n  MaVoucher,\n  TongTien,\n  PhiVanChuyen,\n  ChiTietDonHangs[...]\n}
+
+DHC -> OS: CreateOrderAsync(request)
+
+rect rgb(255, 240, 240)
+note over OS, DB
+    TRANSACTION BẮT ĐẦU
+    (Đảm bảo dữ liệu toàn vẹn)
+end note
+
+OS -> DB: BEGIN TRANSACTION
+OS -> DB: INSERT DonHang\n(TrangThai = 'cho_xu_ly')
+DB --> OS: MaDonHang tạo thành công
+
+OS -> DB: INSERT LichSuTrangThaiDonHang\n(MaDonHang, TrangThai='cho_xu_ly')
+
+OS -> DB: TRỪ SỐ LƯỢNG VOUCHER\nUPDATE Voucher.SoLuong -= 1\n(Nếu có MaVoucher)
+
+loop Cho mỗi ChiTietDonHang
+    OS -> DB: Query ChiTietKho\nWHERE MaMon = X\nAND SoLuongHienTai > 0\nAND NgayHetHan > NOW\nORDER BY NgayHetHan (FIFO)
+    
+    alt Tồn kho đủ
+        OS -> DB: INSERT ChiTietDonHang\n(MaDonHang, MaMon, SoLuong, DonGia)
+        
+        loop FIFO: Trừ từng lô hàng
+            OS -> DB: UPDATE ChiTietKho\nSoLuongHienTai -= SoLuong
+        end
+        
+        OS -> DB: INSERT LichSuKho\n(LoaiGiaoDich='XuatBan',\n Ghi chú đơn hàng)
+    else Tồn kho không đủ
+        OS -> DHC: Trả lỗi:\n"Rất tiếc! Món X\nchỉ còn Y phần"
+        DHC --> FE: Lỗi 400
+        FE -> U: Hiển thị thông báo lỗi
+        note over OS, DB
+            ROLLBACK TRANSACTION
+        end note
+        OS -> DB: ROLLBACK
+        stop
+    end
+end
+
+OS -> DB: INSERT ThanhToan\n(MaDonHang, SoTien,\n PhuongThuc, TrangThai)
+
+OS -> DB: Xóa ChiTietGioHang\nXóa GioHang\n(Làm sạch giỏ hàng)
+
+OS -> DB: COMMIT TRANSACTION
+
+note over OS, DB
+    TRANSACTION HOÀN TẤT
+    (Dữ liệu đã được lưu)
+end note
+end
+
+OS --> DHC: Success, MaDonHang
+DHC --> FE: 200 OK\n{\n  message: "Tạo đơn thành công",\n  maDonHang: X\n}
+
+end
+
+rect rgb(240, 240, 220)
+note over U, TS
+    GIAI ĐOẠN 4: THANH TOÁN
+end note
+
+alt Phương thức = VNPay
+    FE -> FE: Hiển thị nút "Thanh toán VNPay"
+    U -> FE: Bấm nút thanh toán
+    
+    FE -> PC: POST /api/payment/CreatePaymentUrl\n{\n  OrderId: MaDonHang,\n  Amount: TongTien,\n  OrderInfo: "Thanh toán đơn hàng X"\n}
+    
+    PC -> VPS: CreatePaymentUrl(request)
+    
+    VPS -> VPS: Tạo dữ liệu gửi VNPay:\n- MerchantCode (TmnCode)\n- OrderId (Mã đơn)\n- Amount (Nhân 100)\n- CreateDate\n- ReturnUrl
+    
+    VPS -> VPS: Lấy IP khách hàng\nTạo HMAC256 signature
+    
+    VPS -> VPS: Tạo URL VNPay\n+vnp_TmnCode\n+vnp_Amount\n+vnp_OrderInfo\n+vnp_SecureHash
+    
+    VPS --> PC: Trả về URL
+    PC --> FE: 200 OK\n{\n  url: "https://sandbox.vnpayment.vn/.."\n}
+    
+    FE -> U: Redirect đến VNPay gateway
+    U -> VNPAY: Truy cập link thanh toán
+    VNPAY -> U: Hiển thị form thanh toán\n(Nhập thông tin thẻ)
+    
+    U -> VNPAY: Nhập thông tin thanh toán
+    VNPAY -> VNPAY: Xác thực thanh toán
+    
+    alt Thanh toán thành công
+        VNPAY -> FE: Redirect về ReturnUrl\n+ vnp_ResponseCode=00\n+ vnp_TransactionNo\n+ vnp_SecureHash
+        FE -> FE: Xác thực SecureHash
+        FE -> U: Hiển thị thông báo\n"Thanh toán thành công"
+        
+        DB -> DB: UPDATE ThanhToan\nTrangThai = 'success'
+        
+    else Thanh toán thất bại
+        VNPAY -> FE: Redirect về ReturnUrl\n+ vnp_ResponseCode!=00
+        FE -> U: Hiển thị lỗi
+        DB -> DB: UPDATE ThanhToan\nTrangThai = 'failed'
+    end
+
+else Phương thức = COD
+    FE -> U: Hiển thị xác nhận\n"Thanh toán khi nhận hàng"
+    U -> FE: Xác nhận
+    DB -> DB: UPDATE ThanhToan\nTrangThai = 'pending'
+end
+
+end
+
+rect rgb(220, 240, 240)
+note over U, TS
+    GIAI ĐOẠN 5: HOÀN TẤT & CẬP NHẬT TRẠNG THÁI
+end note
+
+DB -> DB: UPDATE DonHang\nTrangThai = 'da_xac_nhan'\n(Sau khi thanh toán xong hoặc COD)
+
+DB -> DB: INSERT LichSuTrangThaiDonHang\nGhi lại thời gian xác nhận
+
+FE -> U: Hiển thị:\n- Mã đơn hàng\n- Tổng tiền\n- Thời gian giao dự kiến\n- Nút "Quay lại trang chủ"
+
+end
+
+@enduml
